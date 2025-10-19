@@ -2,7 +2,6 @@
 # Pulse AI Deployment Configuration (Render)
 # Version: 1.0.0
 # ===============================================
-
 services:
   # =======================
   # 🧠 Backend — FastAPI
