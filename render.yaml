@@ -1,97 +1,69 @@
+# ===============================================
+# Pulse AI Deployment Configuration (Render)
+# Version: 1.0.0
+# ===============================================
+
 services:
+  # =======================
+  # 🧠 Backend — FastAPI
+  # =======================
   - type: web
     name: pulse-backend
     env: python
-    plan: starter
+    plan: free
     region: oregon
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 10000
+    buildCommand: |
+      pip install --no-cache-dir -r requirements.txt
+    startCommand: |
+      uvicorn main:app --host 0.0.0.0 --port $PORT
     autoDeploy: true
-    rootDir: services/backend
+
     envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: pulse-db
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: pulse-redis
-          property: connectionString
-      - key: S3_ENDPOINT
-        value: http://minio:9000
-      - key: S3_ACCESS_KEY
-        sync: false
-      - key: S3_SECRET_KEY
-        sync: false
-      - key: S3_BUCKET
-        value: pulse-prod
+      # Core configuration
+      - key: ENV
+        value: production
+      - key: PORT
+        value: 8080
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+      # App Secrets (set manually in Render Dashboard for security)
       - key: SUPABASE_URL
         sync: false
-      - key: SUPABASE_ANON_KEY
+      - key: SUPABASE_KEY
         sync: false
-      - key: BACKEND_SERVICE_KEY
-        generateValue: true
       - key: OPENAI_API_KEY
         sync: false
-      - key: BACKEND_CORS_ORIGINS
-        value: https://pulseapp.vercel.app
+      - key: JWT_SECRET
+        sync: false
+      - key: SPOTIFY_CLIENT_ID
+        sync: false
+      - key: SPOTIFY_CLIENT_SECRET
+        sync: false
+      - key: TMDB_API_KEY
+        sync: false
+      - key: VERCEL_URL
+        value: https://pulse-ai-v1-0.vercel.app
 
-  - type: worker
-    name: pulse-worker
-    env: python
-    plan: starter
+  # =======================
+  # 💻 Frontend — Vite
+  # =======================
+  - type: web
+    name: pulse-frontend
+    env: node
+    plan: free
     region: oregon
-    buildCommand: pip install -r requirements.txt
-    startCommand: celery -A app.tasks.celery_app worker --loglevel=info
+    buildCommand: npm install && npm run build
+    startCommand: npm run preview -- --port $PORT
     autoDeploy: true
-    rootDir: services/worker
+
     envVars:
-      - key: REDIS_URL
-        fromService:
-          type: redis
-          name: pulse-redis
-          property: connectionString
-      - key: S3_ENDPOINT
-        value: http://minio:9000
-      - key: S3_ACCESS_KEY
-        sync: false
-      - key: S3_SECRET_KEY
-        sync: false
-      - key: S3_BUCKET
-        value: pulse-prod
-      - key: BACKEND_URL
-        fromService:
-          type: web
-          name: pulse-backend
-          property: url
-      - key: BACKEND_SERVICE_KEY
-        fromService:
-          type: web
-          name: pulse-backend
-          envVarKey: BACKEND_SERVICE_KEY
-      - key: OPENAI_API_KEY
-        sync: false
+      # Directly reference backend URL (Render doesn’t support .url linking)
+      - key: VITE_API_URL
+        value: https://pulse-backend.onrender.com
 
-  - type: redis
-    name: pulse-redis
-    ipAllowList: []
-
-  - type: pserv
-    name: minio
-    env: docker
-    plan: starter
-    dockerCommand: server /data --console-address ":9001"
-    envVars:
-      - key: MINIO_ROOT_USER
-        value: minioadmin
-      - key: MINIO_ROOT_PASSWORD
-        value: minioadmin
-    disk:
-      name: minio-data
-      mountPath: /data
-      sizeGB: 5
-
-databases:
-  - name: pulse-db
-    plan: starter
+      # Environment for Vite
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 8080
