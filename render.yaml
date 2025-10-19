@@ -1,0 +1,97 @@
+services:
+  - type: web
+    name: pulse-backend
+    env: python
+    plan: starter
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port 10000
+    autoDeploy: true
+    rootDir: services/backend
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pulse-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: pulse-redis
+          property: connectionString
+      - key: S3_ENDPOINT
+        value: http://minio:9000
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      - key: S3_BUCKET
+        value: pulse-prod
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: BACKEND_SERVICE_KEY
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: BACKEND_CORS_ORIGINS
+        value: https://pulseapp.vercel.app
+
+  - type: worker
+    name: pulse-worker
+    env: python
+    plan: starter
+    region: oregon
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A app.tasks.celery_app worker --loglevel=info
+    autoDeploy: true
+    rootDir: services/worker
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: pulse-redis
+          property: connectionString
+      - key: S3_ENDPOINT
+        value: http://minio:9000
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
+      - key: S3_BUCKET
+        value: pulse-prod
+      - key: BACKEND_URL
+        fromService:
+          type: web
+          name: pulse-backend
+          property: url
+      - key: BACKEND_SERVICE_KEY
+        fromService:
+          type: web
+          name: pulse-backend
+          envVarKey: BACKEND_SERVICE_KEY
+      - key: OPENAI_API_KEY
+        sync: false
+
+  - type: redis
+    name: pulse-redis
+    ipAllowList: []
+
+  - type: pserv
+    name: minio
+    env: docker
+    plan: starter
+    dockerCommand: server /data --console-address ":9001"
+    envVars:
+      - key: MINIO_ROOT_USER
+        value: minioadmin
+      - key: MINIO_ROOT_PASSWORD
+        value: minioadmin
+    disk:
+      name: minio-data
+      mountPath: /data
+      sizeGB: 5
+
+databases:
+  - name: pulse-db
+    plan: starter
