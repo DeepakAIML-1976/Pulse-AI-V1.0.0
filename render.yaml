@@ -5,7 +5,7 @@
 services:
   
   # 🧠 Backend — FastAPI
-  # =======================
+  
   - type: web
     name: pulse-backend
     env: python
