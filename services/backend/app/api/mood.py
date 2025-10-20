@@ -123,7 +123,7 @@ async def create_mood_snapshot(
         audio_s3_key=s3_key,
         detected_emotion=classification["label"],
         confidence=float(classification["confidence"]),
-        metadata=json.dumps({"source_hint": "mvp"}),
+        meta_data=json.dumps({"source_hint": "mvp"}),
     )
 
     with get_session() as session:
@@ -183,9 +183,9 @@ async def transcription_callback(
             raise HTTPException(status_code=404, detail="Not found")
 
         res.raw_text = res.raw_text or text
-        meta = json.loads(res.metadata or "{}")
+        meta = json.loads(res.meta_data or "{}")
         meta.update({"transcribed": True})
-        res.metadata = json.dumps(meta)
+        res.meta_data = json.dumps(meta)
 
         cls = await _classify_text_with_openai(text) or _heuristic_text_classify(text)
         res.detected_emotion = cls["label"]
