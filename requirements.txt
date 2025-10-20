@@ -9,3 +9,5 @@ requests==2.31.0
 openai==1.2.4
 boto3>=1.28.0,<2.0.0
 redis>=5.0.0,<6.0.0
+psycopg2-binary
+postgrest==0.13.0
