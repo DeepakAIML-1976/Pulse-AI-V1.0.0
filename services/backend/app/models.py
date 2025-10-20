@@ -20,5 +20,5 @@ class MoodSnapshot(SQLModel, table=True):
     audio_s3_key: Optional[str] = None
     detected_emotion: Optional[str] = None
     confidence: Optional[float] = None
-    metadata: Optional[str] = None
+    meta_data: Optional[str] = Field(default=None, alias="metadata")
     created_at: datetime = Field(default_factory=datetime.utcnow)
