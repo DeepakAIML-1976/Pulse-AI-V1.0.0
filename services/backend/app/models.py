@@ -1,3 +1,4 @@
+# services/backend/app/models.py
 from typing import Optional
 from datetime import datetime
 from sqlmodel import SQLModel, Field
@@ -21,4 +22,13 @@ class MoodSnapshot(SQLModel, table=True):
     detected_emotion: Optional[str] = None
     confidence: Optional[float] = None
     meta_data: Optional[str] = Field(default=None, alias="metadata")
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+class ChatMessage(SQLModel, table=True):
+    id: str = Field(default_factory=gen_uuid, primary_key=True)
+    user_id: str = Field(index=True)
+    session_id: Optional[str] = Field(default=None, index=True)
+    role: str = Field(default="user")  # 'user' | 'assistant' | 'system'
+    content: str
+    detected_emotion: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
