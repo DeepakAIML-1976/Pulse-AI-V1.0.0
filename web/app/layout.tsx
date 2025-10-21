@@ -1,3 +1,5 @@
+'use client';  // ✅ REQUIRED so React hooks can be used here
+
 import '../styles/globals.css';
 import React, { useEffect, useState } from 'react';
 import Link from 'next/link';
