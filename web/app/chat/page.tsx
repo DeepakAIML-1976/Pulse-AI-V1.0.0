@@ -17,21 +17,22 @@ export default function ChatPage() {
   const chatEndRef = useRef<HTMLDivElement | null>(null);
 
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
+
   if (!API_BASE) {
-    throw new Error('❌ NEXT_PUBLIC_API_BASE_URL not set. Check your Vercel environment variables.');
+    throw new Error('❌ NEXT_PUBLIC_API_BASE_URL missing. Check your Vercel environment variables.');
   }
 
   const scrollToBottom = () => {
-    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 200);
+    setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 300);
   };
 
-  // 🧠 Load chat history
+  // 🧠 Load full chat history
   useEffect(() => {
     (async () => {
       try {
         const token = (await supabase.auth.getSession()).data.session?.access_token;
         if (!token) {
-          console.warn('⚠️ No Supabase token found.');
+          console.warn('⚠️ No user token found.');
           return;
         }
 
@@ -39,32 +40,31 @@ export default function ChatPage() {
           headers: { Authorization: `Bearer ${token}` },
         });
 
-        console.log('✅ Chat history response:', resp.data);
+        console.log('✅ Chat history:', resp.data);
 
-        const validMessages = Array.isArray(resp.data)
+        const valid = Array.isArray(resp.data)
           ? resp.data
-              .filter((m: any) => m && m.role && m.content)
+              .filter((m: any) => m && (m.role || m.content))
               .map((m: any) => ({
-                role: m.role,
-                content: m.content,
+                role: m.role || 'assistant',
+                content: m.content || '',
                 detected_emotion: m.detected_emotion,
               }))
           : [];
 
-        setMessages(validMessages);
+        setMessages(valid);
         scrollToBottom();
       } catch (err) {
-        console.error('❌ Failed to load chat history:', err);
+        console.error('❌ History load failed:', err);
         setError('Unable to load chat history.');
       }
     })();
   }, []);
 
-  // 💬 Send message
+  // 💬 Send new message
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!input.trim()) return;
-
     setLoading(true);
     setError(null);
 
@@ -73,54 +73,80 @@ export default function ChatPage() {
       if (!token) throw new Error('No session token found.');
 
       const userMsg: Message = { role: 'user', content: input };
-      setMessages((prev) => [...prev, userMsg]); // Show user message immediately
+      setMessages((prev) => [...prev, userMsg]);
 
-      console.log('💬 Sending to API:', input);
       const resp = await axios.post(
         `${API_BASE}/api/chat`,
         { content: input },
         { headers: { Authorization: `Bearer ${token}` } }
       );
-
       console.log('✅ Chat API response:', resp.data);
 
-      const { user_message, assistant_message, recommendations } = resp.data || {};
+      const assistantRaw = resp.data.assistant_message;
+      const detectedEmotion = resp.data.detected_emotion;
+      const recs = resp.data.recommendations;
 
-      // Combine all available responses into a proper chat sequence
-      const newMessages: Message[] = [
-        ...(user_message ? [user_message] : []),
-        ...(assistant_message ? [assistant_message] : []),
-      ];
-
-      if (recommendations) {
-        newMessages.push({
-          role: 'recs',
-          content: JSON.stringify(recommendations, null, 2),
-        });
+      // Normalize both string/object formats
+      let assistantMsg: Message | null = null;
+      if (typeof assistantRaw === 'string') {
+        assistantMsg = { role: 'assistant', content: assistantRaw, detected_emotion: detectedEmotion };
+      } else if (assistantRaw?.content) {
+        assistantMsg = {
+          role: assistantRaw.role || 'assistant',
+          content: assistantRaw.content,
+          detected_emotion: assistantRaw.detected_emotion || detectedEmotion,
+        };
       }
 
-      setMessages((prev) => [
-        ...prev,
-        ...newMessages.filter((m) => m && m.content),
-      ]);
+      const newMessages = [
+        ...(assistantMsg ? [assistantMsg] : []),
+        ...(recs ? [{ role: 'recs', content: JSON.stringify(recs, null, 2) }] : []),
+      ];
+
+      setMessages((prev) => [...prev, ...newMessages]);
       setInput('');
       scrollToBottom();
     } catch (err) {
       console.error('❌ Chat send error:', err);
-      setError('Failed to send message. Please try again.');
+      setError('Failed to send message.');
     } finally {
       setLoading(false);
     }
   };
 
-  // 🪄 Render UI
+  // 🪄 Handle Mood Snapshot injection (live sync)
+  useEffect(() => {
+    const handler = () => {
+      const stored = localStorage.getItem('lastMoodResponse');
+      if (stored) {
+        const r = JSON.parse(stored);
+        console.log('🧩 MoodForm sent new message:', r);
+
+        const assistantRaw = r.assistant_message;
+        const detected = r.detected_emotion;
+
+        const msg =
+          typeof assistantRaw === 'string'
+            ? { role: 'assistant', content: assistantRaw, detected_emotion: detected }
+            : assistantRaw?.content
+            ? { role: 'assistant', content: assistantRaw.content, detected_emotion: detected }
+            : null;
+
+        if (msg) setMessages((prev) => [...prev, msg]);
+        localStorage.removeItem('lastMoodResponse');
+        scrollToBottom();
+      }
+    };
+
+    window.addEventListener('newChatMessage', handler);
+    return () => window.removeEventListener('newChatMessage', handler);
+  }, []);
+
   return (
     <div className="max-w-3xl mx-auto mt-8">
-      <h2 className="text-2xl font-semibold mb-4 text-indigo-700">
-        Pulse Chat Companion 💬
-      </h2>
+      <h2 className="text-2xl font-semibold mb-4 text-indigo-700">Pulse Chat Companion 💬</h2>
 
-      <div className="bg-white border rounded p-4 h-[60vh] overflow-y-auto shadow-sm">
+      <div className="bg-white border rounded p-4 h-[65vh] overflow-y-auto shadow-sm">
         {error && <div className="text-red-600 text-sm mb-3">{error}</div>}
 
         {messages.length > 0 ? (
@@ -156,7 +182,7 @@ export default function ChatPage() {
           ))
         ) : (
           <div className="text-gray-500 text-center mt-20">
-            👋 No messages yet — start chatting below!
+            👋 Start chatting or upload your first mood snapshot!
           </div>
         )}
         <div ref={chatEndRef} />

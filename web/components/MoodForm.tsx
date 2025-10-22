@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { supabase } from '../lib/supabaseClient';
 
-// ✅ Correct prop definition
 type Props = {
   onResult?: (r: any) => void;
 };
@@ -19,7 +18,7 @@ export default function MoodForm({ onResult }: Props) {
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   if (!API_BASE) {
-    throw new Error('❌ NEXT_PUBLIC_API_BASE_URL not found. Check Vercel environment variables.');
+    throw new Error('❌ NEXT_PUBLIC_API_BASE_URL not set.');
   }
 
   const submit = async (e: React.FormEvent) => {
@@ -34,36 +33,34 @@ export default function MoodForm({ onResult }: Props) {
       const headers: Record<string, string> = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      console.log('🧠 Submitting mood form → chat mode?', postAsChat);
+      let resp;
 
       if (postAsChat && text.trim()) {
-        console.log('💬 Sending to /api/chat →', text);
-        const resp = await axios.post(
-          `${API_BASE}/api/chat`,
-          { content: text },
-          { headers }
-        );
-        console.log('✅ /api/chat response:', resp.data);
-        setResult(resp.data);
-        onResult?.(resp.data);
-        return;
+        console.log('💬 Sending to Chat API');
+        resp = await axios.post(`${API_BASE}/api/chat`, { content: text }, { headers });
+      } else {
+        console.log('🌤 Sending to Mood API');
+        const form = new FormData();
+        if (text) form.append('text', text);
+        if (file) form.append('file', file);
+        headers['Content-Type'] = 'multipart/form-data';
+        resp = await axios.post(`${API_BASE}/api/mood`, form, { headers });
       }
 
-      const form = new FormData();
-      if (text) form.append('text', text);
-      if (file) form.append('file', file);
-      headers['Content-Type'] = 'multipart/form-data';
-
-      console.log('🎧 Uploading to /api/mood...');
-      const resp = await axios.post(`${API_BASE}/api/mood`, form, { headers });
-      console.log('✅ /api/mood response:', resp.data);
+      console.log('✅ API response:', resp.data);
       setResult(resp.data);
       onResult?.(resp.data);
+
+      // 🔄 Push to chat page via localStorage + event
+      localStorage.setItem('lastMoodResponse', JSON.stringify(resp.data));
+      window.dispatchEvent(new Event('newChatMessage'));
     } catch (err) {
       console.error('❌ Submission error:', err);
       setError('Error submitting form.');
     } finally {
       setLoading(false);
+      setText('');
+      setFile(null);
     }
   };
 
@@ -73,11 +70,10 @@ export default function MoodForm({ onResult }: Props) {
         <textarea
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="How are you feeling today?"
+          placeholder="Type or record your feeling..."
           className="w-full border rounded p-2 min-h-[100px]"
         />
         <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-
         <div className="flex items-center gap-2">
           <input
             type="checkbox"
@@ -86,7 +82,6 @@ export default function MoodForm({ onResult }: Props) {
           />
           <span>Send to AI Chat Companion</span>
         </div>
-
         <button
           type="submit"
           disabled={loading}
@@ -101,11 +96,8 @@ export default function MoodForm({ onResult }: Props) {
       {error && <div className="text-red-600 text-sm">{error}</div>}
 
       {result && (
-        <div className="mt-4 p-3 border rounded bg-gray-50">
-          <h3 className="font-semibold text-indigo-700 mb-2">Response</h3>
-          <pre className="text-xs text-gray-700 whitespace-pre-wrap">
-            {JSON.stringify(result, null, 2)}
-          </pre>
+        <div className="mt-4 p-3 border rounded bg-gray-50 text-sm text-gray-700">
+          ✅ Processed successfully. Check the chat window for the AI response.
         </div>
       )}
     </div>
