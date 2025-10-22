@@ -3,7 +3,12 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { supabase } from '../lib/supabaseClient';
 
-export default function MoodForm() {
+// ✅ Correct prop definition
+type Props = {
+  onResult?: (r: any) => void;
+};
+
+export default function MoodForm({ onResult }: Props) {
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
@@ -40,6 +45,7 @@ export default function MoodForm() {
         );
         console.log('✅ /api/chat response:', resp.data);
         setResult(resp.data);
+        onResult?.(resp.data);
         return;
       }
 
@@ -52,6 +58,7 @@ export default function MoodForm() {
       const resp = await axios.post(`${API_BASE}/api/mood`, form, { headers });
       console.log('✅ /api/mood response:', resp.data);
       setResult(resp.data);
+      onResult?.(resp.data);
     } catch (err) {
       console.error('❌ Submission error:', err);
       setError('Error submitting form.');

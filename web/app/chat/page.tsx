@@ -13,14 +13,14 @@ export default function ChatPage() {
   const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
 
   if (!API_BASE) {
-    throw new Error('❌ NEXT_PUBLIC_API_BASE_URL missing. Check Vercel environment variables.');
+    throw new Error('❌ NEXT_PUBLIC_API_BASE_URL missing. Check your Vercel environment variables.');
   }
 
   const scrollToBottom = () => {
     setTimeout(() => chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
-  // Load history on mount
+  // Load chat history
   useEffect(() => {
     (async () => {
       try {
@@ -35,7 +35,9 @@ export default function ChatPage() {
         });
         console.log('✅ Chat history response:', resp.data);
 
-        const data = Array.isArray(resp.data) ? resp.data.filter((m) => m && (m.role || m.content)) : [];
+        const data = Array.isArray(resp.data)
+          ? resp.data.filter((m) => m && (m.role || m.content))
+          : [];
         setMessages(data.reverse ? data.reverse() : data);
       } catch (err) {
         console.error('❌ Failed to load chat history:', err);
