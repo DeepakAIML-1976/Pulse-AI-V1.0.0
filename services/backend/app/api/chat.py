@@ -1,107 +1,93 @@
-# services/backend/app/api/chat.py
-from fastapi import APIRouter, Depends, HTTPException, Body
-from typing import List, Dict
-from ..core.config import settings
-from ..db import get_session
-from ..models import ChatMessage
-from sqlmodel import select
-import httpx, json
-from .mood import _classify_text_with_openai, _heuristic_text_classify, get_current_user_dependency
-from ..utils.recommendations import get_recommendations_for_emotion
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from app.dependencies import get_current_user_dependency
+from app.database import db
+from datetime import datetime
+import os, httpx, logging
 
-router = APIRouter(prefix="/api/chat", tags=["chat"])
+router = APIRouter()
+logger = logging.getLogger("uvicorn.error")
 
-@router.post("", status_code=201)
-async def post_message(
-    body: Dict = Body(...),  # expects { content: str, session_id?: str }
-    current_user: dict = Depends(get_current_user_dependency)
-):
-    content = body.get("content")
-    session_id = body.get("session_id")
-    if not content:
-        raise HTTPException(status_code=400, detail="content required")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
-    # detect emotion for the user's message
-    cls = await _classify_text_with_openai(content) or _heuristic_text_classify(content)
-    emotion = cls.get("label")
-    confidence = float(cls.get("confidence", 0.6))
+class ChatRequest(BaseModel):
+    content: str
 
-    # store the user message
-    with get_session() as session:
-        user_msg = ChatMessage(
-            user_id=current_user["id"],
-            session_id=session_id,
-            role="user",
-            content=content,
-            detected_emotion=emotion
-        )
-        session.add(user_msg)
-        session.commit()
-        session.refresh(user_msg)
+@router.post("/api/chat")
+async def chat_with_ai(payload: ChatRequest, user=Depends(get_current_user_dependency)):
+    """Handles chat between user and AI + stores conversation."""
+    if not OPENAI_API_KEY:
+        raise HTTPException(status_code=500, detail="OpenAI API key missing.")
 
-    # build context from recent messages (last 6)
-    context_messages = []
-    with get_session() as s:
-        stmt = select(ChatMessage).where(ChatMessage.user_id == current_user["id"]).order_by(ChatMessage.created_at.desc()).limit(6)
-        rows = s.exec(stmt).all()
-        # reverse chronological -> chronological
-        for r in reversed(rows):
-            context_messages.append({"role": r.role, "content": r.content})
+    user_id = user.get("id")
+    user_msg = payload.content.strip()
+    if not user_msg:
+        raise HTTPException(status_code=400, detail="Empty message.")
 
-    # system prompt for assistant persona
-    system_prompt = (
-        "You are Pulse, a helpful empathetic assistant. Use CBT-informed, non-clinical tone. "
-        "Offer small practical nudges and suggestions. If user describes serious self-harm intent, respond with crisis resources."
+    # Save user's message
+    await db.execute(
+        "INSERT INTO chat_messages (user_id, role, content, created_at) VALUES (:uid, :r, :c, :t)",
+        {"uid": user_id, "r": "user", "c": user_msg, "t": datetime.utcnow()},
     )
 
-    # generate assistant reply via OpenAI if key available
-    reply_text = "Sorry — I couldn't reach the assistant right now."
-    if settings.OPENAI_API_KEY:
-        url = "https://api.openai.com/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {settings.OPENAI_API_KEY}"}
-        messages = [{"role": "system", "content": system_prompt}]
-        messages.extend(context_messages)
-        messages.append({"role": "user", "content": content})
-        payload = {"model": "gpt-4o-mini", "messages": messages, "temperature": 0.7, "max_tokens": 300}
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(url, headers=headers, json=payload)
-            if resp.status_code == 200:
-                try:
-                    reply_text = resp.json()["choices"][0]["message"]["content"]
-                except Exception:
-                    reply_text = "Thanks — can you say a bit more?"
-            else:
-                reply_text = "I'm here but couldn't reach the model. Try again."
+    # Fetch last few messages for context (user + bot)
+    rows = await db.fetch_all(
+        """
+        SELECT role, content FROM chat_messages
+        WHERE user_id = :uid
+        ORDER BY created_at DESC
+        LIMIT 5
+        """,
+        {"uid": user_id},
+    )
+    messages = [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
 
-    # detect emotion of assistant reply (optional)
-    reply_cls = await _classify_text_with_openai(reply_text) if settings.OPENAI_API_KEY else _heuristic_text_classify(reply_text)
-    reply_emotion = reply_cls.get("label") if reply_cls else None
+    # Add system instruction for consistent AI personality
+    messages.insert(0, {
+        "role": "system",
+        "content": (
+            "You are Pulse, an empathetic emotional health companion. "
+            "You provide warm, understanding responses to users' emotional states. "
+            "If the user seems sad, anxious, or tired, be supportive and kind. "
+            "When asked for music or movie recommendations, consider their mood "
+            "and provide both English and Hindi options where relevant."
+        ),
+    })
 
-    # store assistant message
-    with get_session() as session:
-        assistant_msg = ChatMessage(
-            user_id=current_user["id"],
-            session_id=session_id,
-            role="assistant",
-            content=reply_text,
-            detected_emotion=reply_emotion
+    # Make OpenAI call
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            response = await client.post(
+                OPENAI_API_URL,
+                headers={
+                    "Authorization": f"Bearer {OPENAI_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini",
+                    "messages": messages,
+                    "temperature": 0.8,
+                    "max_tokens": 300,
+                },
+            )
+
+        if response.status_code != 200:
+            logger.error(f"OpenAI error {response.status_code}: {response.text}")
+            raise HTTPException(status_code=502, detail="OpenAI API request failed.")
+
+        data = response.json()
+        ai_reply = data["choices"][0]["message"]["content"].strip()
+
+        # Save bot reply
+        await db.execute(
+            "INSERT INTO chat_messages (user_id, role, content, created_at) VALUES (:uid, :r, :c, :t)",
+            {"uid": user_id, "r": "bot", "c": ai_reply, "t": datetime.utcnow()},
         )
-        session.add(assistant_msg)
-        session.commit()
-        session.refresh(assistant_msg)
 
-    # recommendations (Spotify + TMDB) for the detected emotion of the user message
-    recs = await get_recommendations_for_emotion(emotion or "neutral")
+        logger.info(f"AI replied to {user_id[:8]}: {ai_reply[:80]}...")
+        return {"assistant_message": ai_reply}
 
-    return {
-        "user_message": user_msg.dict(),
-        "assistant_message": assistant_msg.dict(),
-        "recommendations": recs
-    }
-
-@router.get("/history", response_model=List[dict])
-def chat_history(limit: int = 50, current_user: dict = Depends(get_current_user_dependency)):
-    with get_session() as session:
-        stmt = select(ChatMessage).where(ChatMessage.user_id == current_user["id"]).order_by(ChatMessage.created_at.desc()).limit(limit)
-        rows = session.exec(stmt).all()
-        return [r.dict() for r in rows]
+    except Exception as e:
+        logger.exception("Error generating AI reply")
+        raise HTTPException(status_code=500, detail="Failed to generate AI response.")
