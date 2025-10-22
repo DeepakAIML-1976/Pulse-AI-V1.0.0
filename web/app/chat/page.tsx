@@ -45,11 +45,13 @@ export default function ChatPage() {
         const valid = Array.isArray(resp.data)
           ? resp.data
               .filter((m: any) => m && (m.role || m.content))
-              .map((m: any) => ({
-                role: m.role || 'assistant',
-                content: m.content || '',
-                detected_emotion: m.detected_emotion,
-              }))
+              .map(
+                (m: any): Message => ({
+                  role: (m.role as 'user' | 'assistant' | 'recs') || 'assistant',
+                  content: m.content || '',
+                  detected_emotion: m.detected_emotion,
+                })
+              )
           : [];
 
         setMessages(valid);
@@ -92,15 +94,22 @@ export default function ChatPage() {
         assistantMsg = { role: 'assistant', content: assistantRaw, detected_emotion: detectedEmotion };
       } else if (assistantRaw?.content) {
         assistantMsg = {
-          role: assistantRaw.role || 'assistant',
+          role: (assistantRaw.role as 'assistant') || 'assistant',
           content: assistantRaw.content,
           detected_emotion: assistantRaw.detected_emotion || detectedEmotion,
         };
       }
 
-      const newMessages = [
+      const newMessages: Message[] = [
         ...(assistantMsg ? [assistantMsg] : []),
-        ...(recs ? [{ role: 'recs', content: JSON.stringify(recs, null, 2) }] : []),
+        ...(recs
+          ? [
+              {
+                role: 'recs',
+                content: JSON.stringify(recs, null, 2),
+              } as Message,
+            ]
+          : []),
       ];
 
       setMessages((prev) => [...prev, ...newMessages]);
@@ -125,14 +134,14 @@ export default function ChatPage() {
         const assistantRaw = r.assistant_message;
         const detected = r.detected_emotion;
 
-        const msg =
+        const msg: Message | null =
           typeof assistantRaw === 'string'
             ? { role: 'assistant', content: assistantRaw, detected_emotion: detected }
             : assistantRaw?.content
             ? { role: 'assistant', content: assistantRaw.content, detected_emotion: detected }
             : null;
 
-        if (msg) setMessages((prev) => [...prev, msg]);
+        if (msg) setMessages((prev) => [...prev, msg as Message]);
         localStorage.removeItem('lastMoodResponse');
         scrollToBottom();
       }
