@@ -1,9 +1,17 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
-from datetime import datetime
-import os, httpx, logging, uuid
+# ===============================================================
+# Universal Import Guard — works both locally and on Render
+# ===============================================================
+import os, sys
+from pathlib import Path
 
-# Safe dual imports for Render & local
+# Ensure backend root directory (the folder containing `app/`) is in Python path
+BASE_DIR = Path(__file__).resolve().parents[2]
+if str(BASE_DIR) not in sys.path:
+    sys.path.append(str(BASE_DIR))
+
+# ===============================================================
+# Safe imports for dependencies and database
+# ===============================================================
 try:
     from app.dependencies import get_current_user_dependency
     from app.database import db
@@ -11,25 +19,41 @@ except ModuleNotFoundError:
     from ..dependencies import get_current_user_dependency
     from ..database import db
 
+# ===============================================================
+# Core dependencies
+# ===============================================================
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
+from datetime import datetime
+import httpx
+import logging
+import uuid
+
 router = APIRouter()
 logger = logging.getLogger("uvicorn.error")
 
+# ===============================================================
+# Configuration
+# ===============================================================
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_API_URL = "https://api.openai.com/v1/chat/completions"
 
 
+# ===============================================================
+# Pydantic Schema for incoming requests
+# ===============================================================
 class ChatRequest(BaseModel):
     content: str
     session_id: str | None = None  # optional session grouping
 
 
-# ---------------------------------------------------------------------
-# Helper: detect emotion for a given text using a lightweight prompt
-# ---------------------------------------------------------------------
+# ===============================================================
+# Helper: detect emotion using OpenAI
+# ===============================================================
 async def detect_emotion_from_text(message: str) -> str | None:
     """
     Uses OpenAI (gpt-4o-mini) to categorize user emotion from text.
-    Returns simple one-word label like: happy, sad, anxious, angry, calm, neutral.
+    Returns one-word label like happy, sad, anxious, angry, calm, tired, or neutral.
     """
     if not OPENAI_API_KEY:
         return None
@@ -70,16 +94,16 @@ async def detect_emotion_from_text(message: str) -> str | None:
         return None
 
 
-# ---------------------------------------------------------------------
-# Main Chat Endpoint
-# ---------------------------------------------------------------------
+# ===============================================================
+# Main AI Chat Endpoint
+# ===============================================================
 @router.post("/api/chat")
 async def chat_with_ai(payload: ChatRequest, user=Depends(get_current_user_dependency)):
     """
     AI-powered chat endpoint for Pulse.
-    • Stores user & AI messages in `chatmessage`
-    • Adds emotion detection for user message
-    • Returns AI reply and detected emotion (optional)
+    • Stores user & AI messages in `chatmessage` table
+    • Detects emotion for each user message
+    • Returns AI reply, session_id, and detected emotion
     """
     if not OPENAI_API_KEY:
         raise HTTPException(status_code=500, detail="Missing OpenAI API key")
@@ -95,12 +119,14 @@ async def chat_with_ai(payload: ChatRequest, user=Depends(get_current_user_depen
     session_id = payload.session_id or str(uuid.uuid4())
     created_at = datetime.utcnow()
 
-    # -----------------------------------------------------------------
-    # Detect emotion for the user’s message (non-blocking fallback safe)
-    # -----------------------------------------------------------------
+    # -----------------------------------------------------------
+    # Step 1: Detect emotion for user message
+    # -----------------------------------------------------------
     detected_emotion = await detect_emotion_from_text(user_msg)
 
-    # Save user's message
+    # -----------------------------------------------------------
+    # Step 2: Store user message
+    # -----------------------------------------------------------
     try:
         await db.execute(
             """
@@ -120,7 +146,9 @@ async def chat_with_ai(payload: ChatRequest, user=Depends(get_current_user_depen
     except Exception as e:
         logger.warning(f"Could not save user message: {e}")
 
-    # Retrieve short context
+    # -----------------------------------------------------------
+    # Step 3: Retrieve context (last few messages)
+    # -----------------------------------------------------------
     try:
         history = await db.fetch_all(
             """
@@ -132,26 +160,30 @@ async def chat_with_ai(payload: ChatRequest, user=Depends(get_current_user_depen
             {"uid": user_id, "sid": session_id},
         )
         messages = [{"role": row["role"], "content": row["content"]} for row in reversed(history)]
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to fetch chat history: {e}")
         messages = []
 
-    # Add system instruction
+    # -----------------------------------------------------------
+    # Step 4: Add AI system instruction
+    # -----------------------------------------------------------
     messages.insert(
         0,
         {
             "role": "system",
             "content": (
                 "You are Pulse, an empathetic emotional health companion. "
-                "Be kind, reflective, and concise. "
-                "Respond warmly and when appropriate, suggest songs or movies "
-                "in English or Hindi that could match or improve the mood."
+                "Respond warmly and reflectively. "
+                "If the user seems sad, anxious, or tired, respond with empathy "
+                "and optionally suggest calming Hindi or English songs or movies. "
+                "Keep responses short, natural, and human-like."
             ),
         },
     )
 
-    # -----------------------------------------------------------------
-    # Generate AI reply
-    # -----------------------------------------------------------------
+    # -----------------------------------------------------------
+    # Step 5: Generate AI reply
+    # -----------------------------------------------------------
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             r = await client.post(
@@ -172,13 +204,14 @@ async def chat_with_ai(payload: ChatRequest, user=Depends(get_current_user_depen
             logger.error(f"OpenAI API error {r.status_code}: {r.text}")
             raise HTTPException(status_code=502, detail="OpenAI API request failed")
 
-        data = r.json()
-        ai_reply = data["choices"][0]["message"]["content"].strip()
+        ai_reply = r.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         logger.exception("Error generating AI reply")
         raise HTTPException(status_code=500, detail="Failed to generate AI response")
 
-    # Save AI reply
+    # -----------------------------------------------------------
+    # Step 6: Store AI reply
+    # -----------------------------------------------------------
     try:
         await db.execute(
             """
@@ -197,9 +230,9 @@ async def chat_with_ai(payload: ChatRequest, user=Depends(get_current_user_depen
     except Exception as e:
         logger.warning(f"Could not save AI reply: {e}")
 
-    # -----------------------------------------------------------------
-    # Response: same as before + emotion tag (optional)
-    # -----------------------------------------------------------------
+    # -----------------------------------------------------------
+    # Step 7: Return response (same structure + emotion)
+    # -----------------------------------------------------------
     return {
         "assistant_message": ai_reply,
         "session_id": session_id,
