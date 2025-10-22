@@ -3,69 +3,123 @@
 import React, { useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { useRouter } from 'next/navigation';
-import axios from 'axios';
 
 export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
-  const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState<{ type: 'error' | 'success'; text: string } | null>(null);
 
-  const signUp = async (e: React.FormEvent) => {
+  const SITE_URL =
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    (typeof window !== 'undefined' ? window.location.origin : '');
+
+  const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
+    setLoading(true);
+    setMessage(null);
+
     try {
-      const { data, error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: { data: { full_name: name } }
+      const redirectTo = `${SITE_URL}/login`; // After confirmation, send them to login
+
+      const { data, error } = await supabase.auth.signUp(
+        { email, password },
+        { emailRedirectTo: redirectTo }
+      );
+
+      if (error) {
+        const msg = error.message.toLowerCase();
+        if (msg.includes('already registered') || msg.includes('exists')) {
+          setMessage({
+            type: 'error',
+            text: 'User already exists. Please sign in instead.',
+          });
+        } else {
+          setMessage({
+            type: 'error',
+            text: 'Signup failed. Please try again.',
+          });
+        }
+        setLoading(false);
+        return;
+      }
+
+      setMessage({
+        type: 'success',
+        text:
+          '✅ A confirmation email has been sent to your inbox. Please verify to complete registration.',
       });
-      if (error) throw error;
 
-      const token = data.session?.access_token;
-      if (token) await axios.post(`${API_BASE}/api/users/sync`, { access_token: token });
-
-      alert('Signup successful! Please check your email to confirm.');
-      router.push('/login');
+      setEmail('');
+      setPassword('');
     } catch (err: any) {
-      alert(err.message || 'Signup failed');
+      console.error('Signup error:', err);
+      setMessage({ type: 'error', text: 'Unexpected error. Please try again later.' });
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <div className="max-w-md mx-auto mt-20 bg-white p-6 rounded shadow">
-      <h2 className="text-2xl font-bold mb-4 text-center">Create your Pulse account</h2>
-      <form onSubmit={signUp} className="space-y-3">
-        <input
-          type="text"
-          placeholder="Full Name"
-          className="w-full border rounded p-2"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          required
-        />
-        <input
-          type="email"
-          placeholder="Email"
-          className="w-full border rounded p-2"
-          value={email}
-          onChange={e => setEmail(e.target.value)}
-          required
-        />
-        <input
-          type="password"
-          placeholder="Password"
-          className="w-full border rounded p-2"
-          value={password}
-          onChange={e => setPassword(e.target.value)}
-          required
-        />
-        <button type="submit" className="w-full bg-indigo-600 text-white py-2 rounded">
-          Sign Up
+    <div className="max-w-md mx-auto mt-12">
+      <h1 className="text-2xl font-semibold mb-4">Create Account</h1>
+
+      {message && (
+        <div
+          className={`mb-4 p-3 rounded ${
+            message.type === 'error'
+              ? 'bg-red-50 border border-red-200 text-red-700'
+              : 'bg-green-50 border border-green-200 text-green-700'
+          }`}
+        >
+          {message.text}
+        </div>
+      )}
+
+      <form onSubmit={handleSignup} className="bg-white p-6 rounded shadow space-y-4">
+        <div>
+          <label className="block text-sm font-medium mb-1">Email</label>
+          <input
+            type="email"
+            className="w-full border rounded px-3 py-2"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            required
+            placeholder="you@example.com"
+            disabled={loading}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium mb-1">Password</label>
+          <input
+            type="password"
+            className="w-full border rounded px-3 py-2"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            placeholder="Choose a secure password"
+            disabled={loading}
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={loading}
+          className={`w-full py-2 rounded text-white ${
+            loading ? 'bg-indigo-400' : 'bg-indigo-600 hover:bg-indigo-700'
+          }`}
+        >
+          {loading ? 'Creating Account...' : 'Sign Up'}
         </button>
       </form>
-      <p className="text-center mt-4 text-sm">
-        Already have an account? <a href="/login" className="text-indigo-600">Login</a>
+
+      <p className="mt-4 text-sm text-gray-600 text-center">
+        Already have an account?{' '}
+        <a href="/login" className="text-indigo-600 hover:underline">
+          Sign in
+        </a>
       </p>
     </div>
   );
