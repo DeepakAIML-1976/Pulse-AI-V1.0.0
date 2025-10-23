@@ -16,51 +16,53 @@ export default function SignupPage() {
     (typeof window !== 'undefined' ? window.location.origin : '');
 
   const handleSignup = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage(null);
+  e.preventDefault();
+  setLoading(true);
+  setMessage(null);
 
-    try {
-      const redirectTo = `${SITE_URL}/login`; // After confirmation, send them to login
+  try {
+    const redirectTo = `${SITE_URL}/login`; // After confirmation, send them to login
 
-      const { data, error } = await supabase.auth.signUp(
-        { email, password },
-        { emailRedirectTo: redirectTo }
-      );
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo: redirectTo,
+      },
+    });
 
-      if (error) {
-        const msg = error.message.toLowerCase();
-        if (msg.includes('already registered') || msg.includes('exists')) {
-          setMessage({
-            type: 'error',
-            text: 'User already exists. Please sign in instead.',
-          });
-        } else {
-          setMessage({
-            type: 'error',
-            text: 'Signup failed. Please try again.',
-          });
-        }
-        setLoading(false);
-        return;
+    if (error) {
+      const msg = error.message.toLowerCase();
+      if (msg.includes('already registered') || msg.includes('exists')) {
+        setMessage({
+          type: 'error',
+          text: 'User already exists. Please sign in instead.',
+        });
+      } else {
+        setMessage({
+          type: 'error',
+          text: 'Signup failed. Please try again.',
+        });
       }
-
-      setMessage({
-        type: 'success',
-        text:
-          '✅ A confirmation email has been sent to your inbox. Please verify to complete registration.',
-      });
-
-      setEmail('');
-      setPassword('');
-    } catch (err: any) {
-      console.error('Signup error:', err);
-      setMessage({ type: 'error', text: 'Unexpected error. Please try again later.' });
-    } finally {
       setLoading(false);
+      return;
     }
-  };
 
+    setMessage({
+      type: 'success',
+      text:
+        '✅ A confirmation email has been sent to your inbox. Please verify to complete registration.',
+    });
+
+    setEmail('');
+    setPassword('');
+  } catch (err: any) {
+    console.error('Signup error:', err);
+    setMessage({ type: 'error', text: 'Unexpected error. Please try again later.' });
+  } finally {
+    setLoading(false);
+  }
+};
   return (
     <div className="max-w-md mx-auto mt-12">
       <h1 className="text-2xl font-semibold mb-4">Create Account</h1>
