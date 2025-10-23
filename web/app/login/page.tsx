@@ -1,13 +1,12 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { supabase } from '../../lib/supabaseClient';
 
-// 🧩 Prevent Next.js from prerendering this page at build time
 export const dynamic = 'force-dynamic';
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
@@ -29,7 +28,7 @@ export default function LoginPage() {
     }
   }, [searchParams]);
 
-  // ✅ Redirect if user is already logged in
+  // ✅ Redirect if already logged in
   useEffect(() => {
     const checkSession = async () => {
       const {
@@ -40,7 +39,6 @@ export default function LoginPage() {
     checkSession();
   }, [router]);
 
-  // ✅ Handle login submit
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -68,7 +66,6 @@ export default function LoginPage() {
         return;
       }
 
-      // ✅ Redirect on successful login
       if (data?.session) {
         setMessage({ type: 'success', text: 'Login successful! Redirecting...' });
         setTimeout(() => router.replace('/mood'), 800);
@@ -140,14 +137,20 @@ export default function LoginPage() {
 
         <p className="mt-6 text-center text-sm text-gray-600">
           Don’t have an account?{' '}
-          <a
-            href="/signup"
-            className="text-indigo-600 hover:underline font-medium"
-          >
+          <a href="/signup" className="text-indigo-600 hover:underline font-medium">
             Sign up
           </a>
         </p>
       </div>
     </div>
+  );
+}
+
+// ✅ Wrap useSearchParams() inside a Suspense boundary to satisfy Next.js 14
+export default function LoginPageWrapper() {
+  return (
+    <Suspense fallback={<div className="text-center mt-10 text-gray-500">Loading...</div>}>
+      <LoginForm />
+    </Suspense>
   );
 }
