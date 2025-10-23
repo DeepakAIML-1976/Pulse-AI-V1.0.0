@@ -2,4 +2,47 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, #__next { height: 100%; }
+/* ==========
+   Global Styles
+   ========== */
+
+html, body {
+  height: 100%;
+  background-color: #f9fafb;
+  color: #1f2937;
+  font-family: 'Inter', sans-serif;
+  scroll-behavior: smooth;
+}
+
+a {
+  color: #4F46E5;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  transition: all 0.2s ease;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+h1, h2, h3, h4 {
+  font-weight: 600;
+}
+
+input, textarea {
+  border-radius: 0.5rem;
+  border: 1px solid #d1d5db;
+  padding: 0.5rem;
+  outline: none;
+}
+
+input:focus, textarea:focus {
+  border-color: #4F46E5;
+  box-shadow: 0 0 0 1px #4F46E5;
+}

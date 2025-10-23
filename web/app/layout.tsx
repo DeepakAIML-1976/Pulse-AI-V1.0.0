@@ -1,6 +1,9 @@
+import { Inter } from 'next/font/google';
 import '../styles/globals.css';
 import React from 'react';
 import HeaderClient from '../components/HeaderClient';
+
+const inter = Inter({ subsets: ['latin'] });
 
 export const metadata = {
   title: 'Pulse',
@@ -9,7 +12,7 @@ export const metadata = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
+    <html lang="en" className={inter.className}>
       <body className="min-h-screen bg-slate-50 text-slate-900">
         {/* ✅ Client-side header */}
         <HeaderClient />
